@@ -15,16 +15,22 @@
 //7 MISO   12 in
 //8 IRQ    2  in
 
-// Define your pins here!
-#define CE_pin 4
-#define CSN_pin 5
-#define IRQ_pin 2
-#define MOSI_pin 11
-#define MISO_pin 12
-#define SCK_pin 13 
-
 //The global variables used by everyone
-byte data_in[5], data2, data3;
+functionData lastReadInstruction, expectedInstruction;
+bool hasData, waitingReturn;
+int successCount = 0, failCount = 0;
+
+bool nrfHasData()
+{
+  return hasData;
+}
+
+functionData nrfGetLastReadInstruction()
+{
+  // we've read the data so reset the hasData flag
+  hasData = false;
+  return lastReadInstruction;
+}
 
 void nrfInit()
 {
@@ -93,7 +99,7 @@ void nrfInit()
   attachInterrupt(0, nrfGetData, FALLING);
 }
 
-void nrfTransmit(functionData instruction)
+functionData nrfTransmit(functionData instruction)
 {
   nrfFlushTX();
 
@@ -127,6 +133,8 @@ void nrfTransmit(functionData instruction)
   
   //go back into RX mode
   nrfSetAddressBit(0, 0);
+
+  return returnInstruction;
 }
 
 void nrfFlushRX()
@@ -152,102 +160,18 @@ void nrfGetData()
   digitalWrite(CSN_pin, LOW);
   //read the payload
   byte statusRegister = SPI.transfer(B01100001);
-  data_in[1] = SPI.transfer(B00000000);
-  data_in[2] = SPI.transfer(B00000000);
-  data_in[3] = SPI.transfer(B00000000);
+  lastReadInstruction.function = SPI.transfer(B00000000);
+  lastReadInstruction.data1    = SPI.transfer(B00000000);
+  lastReadInstruction.data2    = SPI.transfer(B00000000);
   digitalWrite(CSN_pin, HIGH);
 
-  //data starting with '1' sets up the pinmode
-  if(data_in[1]==1){
+  // Let the rest of the program know that we have new data
+  hasData = true;
 
-    //data3 is the mode of the pin 0=in 1=out
-    if(data_in[3]==0) {
-      //data2 is the pin, so set the pin
-      pinMode(data_in[2], INPUT);
-    }
-
-    if(data_in[3]==1) {
-      pinMode(data_in[2], OUTPUT);
-    }
-    
-    delay(10);//very important delay - this lets the transmitter finish
-    
-    //up what is was doing before sending data back
-    //send the information back for verification
-    functionData newInstruction = {
-      .function = 3,
-      .data1 = data_in[2],
-      .data2 = data_in[3]
-    };
-    
-    nrfTransmit(newInstruction);
-  }
-  
-  //data starting with '2' sets writes to the pin
-  else if(data_in[1]==2) {
-
-    //data3 is the value of the pin, 0=LOW 1=HIGH
-    if(data_in[3]==0) {
-      digitalWrite(data_in[2], LOW);
-    }
-        
-    if(data_in[3]==1) {
-      digitalWrite(data_in[2], HIGH);
-    }
-        
-    delay(10);
-    
-    //send back for verification
-    functionData newInstruction = {
-      .function = 3,
-      .data1 = data_in[2],
-      .data2 = data_in[3]
-    };
-    
-    nrfTransmit(newInstruction);
-  }
-  
-  //echo back used to verify the right data was sent
-  else if(data_in[1]==3) {
-    data2 = data_in[2];
-    data3 = data_in[3];
-  }
-  
-  //not yet implemented, will be for analog reads probably
-  else if(data_in[1]==5) {}
-  
-  //ping transmit
-  else if(data_in[1]==6) {
-    delay(10);
-    //send ping back
-
-    functionData newInstruction = {
-      .function = 3,
-      .data1 = data_in[2],
-      .data2 = data_in[3]
-    };
-    
-    nrfTransmit(newInstruction);
-  }
-  
-  //not yet implemented, will be for dedicated function like temp reads
-  else if(data_in[1]==7) {}
-  
-  //this is printed if a mode was not defined
-  else {
-    Serial.println("No Mode Byte Identified!");
-    
-    for(i=1; i<4; i++) {
-      //just print out whatever was recieved
-      Serial.print(char(data_in[i]));
-    }
-    
-    Serial.println("  ");
-  }
-  
+  // Clear the RX cache
   nrfFlushRX();
 
-  //clear the RX interrupt flag
+  // clear the RX interrupt flag to start listening again
   nrfSetAddressBit(7, 6);
 }
 
@@ -255,19 +179,10 @@ void nrfSetRXPayload(byte pipe, byte bytes)
 {
   // a register write starts at 32, so add on the 1 and 16 to get you to at R17
   byte address=pipe+32+16+1;
-  digitalWrite(CSN_pin, LOW);
-
+  
   // write register 11 RX_PW_P0
-  byte statusRegister = SPI.transfer(address);
-
   // number of bytes in payload
-  data_in[1] = SPI.transfer(bytes);
-  digitalWrite(CSN_pin, HIGH);
-  Serial.print("RX Payload Set RX_PW_P");
-  Serial.print(pipe);
-  Serial.print(" for ");
-  Serial.print(bytes);
-  Serial.println(" bytes");
+  nrfWriteByte(address, bytes);
 }
 
 void nrfSetAddressBit(byte address, byte bit_address)
@@ -311,35 +226,82 @@ void nrfClearInterrupts()
   nrfSetAddressBit(7, 6);
 }
 
-
+// This function is called in the main loop
 void nrfPing()
 {
-  //get a random byte
-  int ping = random(256);
-  Serial.print("Pinging with     ");
-  Serial.print(ping);
-
-  // send the ping out starting with 6 (basically a function id)
-  functionData newInstruction = {
-    .function = 6,
-    .data1 = ping,
-    .data2 = ping
-  };
+  if(!hasData && !waitingReturn) {
+    //get a random byte
+    int ping = random(256);
+    Serial.print("Pinging with     ");
+    Serial.print(ping);
   
-  nrfTransmit(newInstruction);
+    // send the ping out starting with 6 (basically a function id)
+    functionData instruction = {
+      .function = PING,
+      .data1 = ping,
+      .data2 = ping
+    };
 
-  //give it a little
-  delay(15);
+    expectedInstruction = {
+      .function = PING_RETURN,
+      .data1 = ping,
+      .data2 = ping
+    };
+    
+    nrfTransmit(instruction);
 
-  //see if data2 came back with the ping
-  if(data2 == ping) {
-    Serial.println(" PING Successfull!! ");
-  } else {
-    Serial.println(" PING FAIL!! ");
+    waitingReturn = true;
   }
+  // otherwise we have data and need to verify that it is the correct data
+  else if(hasData) {  
+    //echo back used to verify the right data was sent
+    if(lastReadInstruction.function == PING_RETURN) {
+      expectedInstruction.data1 = lastReadInstruction.data1;
+      expectedInstruction.data2 = lastReadInstruction.data2;
+    }
+    
+    //ping transmit
+    else if(lastReadInstruction.function == PING) {
+      delay(10);
+      //send ping back
+  
+      functionData newInstruction = {
+        .function = PING_RETURN,
+        .data1 = lastReadInstruction.data1,
+        .data2 = lastReadInstruction.data2
+      };
+      
+      nrfTransmit(newInstruction);
+    }
+  
+    //this is printed if a mode was not defined
+    else {
+      Serial.println("No Mode Byte Identified!");
+  
+      Serial.print("Function " + lastReadInstruction.function);
+      Serial.print("Data1    " + lastReadInstruction.data1);
+      Serial.print("Data2    " + lastReadInstruction.data2);
+      
+      Serial.println("  ");
+    }
+  
+    //see if data2 came back with the ping
+    if(lastReadInstruction.data1 == expectedInstruction.data1) {
+      Serial.println(" PING Successfull!! ");
+      successCount++;
+    } else {
+      Serial.println(" PING FAIL!! ");
+      failCount++;
+    }
 
-  //reset
-  data2=0;
+    Serial.print("Success: ");
+    Serial.print((uint8_t) successCount, DEC);
+    Serial.print(" Fail: ");
+    Serial.println((uint8_t) failCount, DEC);
+
+    hasData = false;
+    waitingReturn = false;
+  }
 }
 
 byte nrfGetAddress(byte address)

@@ -8,7 +8,9 @@
 //7 MISO   12 in
 //8 IRQ    2  in
 
-#include "FunctionData.h"
+#include "TypesAndDefines.h"
+
+bool isMaster = true;
 
 void setup()
 {
@@ -18,7 +20,33 @@ void setup()
 
 void loop()
 {
-  //ping random byte out
-  nrfPing();
+  if(isMaster) {
+    //ping random byte out
+    nrfPing();
+  }
+  // isSlave
+  else {
+    if(nrfHasData()) {
+      
+      functionData lastReadInstruction = nrfGetLastReadInstruction();
+
+      // if the last read instruction was a ping
+      // then we should return it
+      if(lastReadInstruction.function == PING) {
+      
+        functionData newInstruction = {
+          .function = PING_RETURN,
+          .data1 = lastReadInstruction.data1,
+          .data2 = lastReadInstruction.data2
+        };
+  
+        nrfTransmit(newInstruction);
+      }
+      
+    }
+    
+  }
+  
+  // nrfPing();
 }
 
