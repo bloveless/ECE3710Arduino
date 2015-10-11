@@ -1,8 +1,9 @@
-//NRF24L01+ Test Code
+// NRF24L01+ Test Code
 // Kevin Darrah
 // V2
 //www.kevindarrah.com
 
+#include <SPI.h>
 
 //NRF      ARDUINO
 //1 GND    GND
@@ -15,7 +16,6 @@
 //8 IRQ    2  in
 
 // Define your pins here!
-#include <SPI.h>
 #define CE_pin 4
 #define CSN_pin 5
 #define IRQ_pin 2
@@ -67,25 +67,25 @@ void nrfInit()
   Serial.println("Setting Up");
   delay(100);
 
-  //pipe 0-5, bytes 1-32
+  // pipe 0-5, bytes 1-32
   nrfSetRXPayload(0, 3);
 
-  //register#, bit#, and value 0 or 1, ::  0,0,1 RX Mode
+  // register#, bit#, and value 0 or 1, ::  0,0,1 RX Mode
   nrfSetAddressBit(0, 0);
 
-  //register, bit, and value 0,1,1 PowerUP
+  // register, bit, and value 0,1,1 PowerUP
   nrfSetAddressBit(0, 1);
 
-  //RT Mask turns off the RT interrupt
+  // RT Mask turns off the RT interrupt
   nrfSetAddressBit(0, 4);
 
-  //TX Mask turns off the TX interrupt
+  // TX Mask turns off the TX interrupt
   nrfSetAddressBit(0, 5);
   
   nrfFlushRX();
   nrfFlushTX();
 
-  //clears any interrupts
+  // clears any interrupts
   nrfClearInterrupts();
   delay(100);
   
@@ -93,17 +93,19 @@ void nrfInit()
   attachInterrupt(0, nrfGetData, FALLING);
 }
 
-void nrfTransmit(byte data1, byte data2, byte data3)
+void nrfTransmit(functionData instruction)
 {
   nrfFlushTX();
+
+  functionData returnInstruction;
   
   digitalWrite(CSN_pin, LOW);
   // load TX payload
-  data_in[0] = SPI.transfer(B10100000);
+  byte statusRegister = SPI.transfer(B10100000);
   // load three bytes of data
-  data_in[1] = SPI.transfer(data1);
-  data_in[2] = SPI.transfer(data2);
-  data_in[3] = SPI.transfer(data3);
+  returnInstruction.function = SPI.transfer(instruction.function);
+  returnInstruction.data1    = SPI.transfer(instruction.data1);
+  returnInstruction.data2    = SPI.transfer(instruction.data2);
   digitalWrite(CSN_pin, HIGH);
 
   //pull CE pin LOW
@@ -131,7 +133,7 @@ void nrfFlushRX()
 {
   // Flush RX
   digitalWrite(CSN_pin, LOW);
-  data_in[0] = SPI.transfer(B11100010);
+  byte statusRegister = SPI.transfer(B11100010);
   digitalWrite(CSN_pin, HIGH);
 }
 
@@ -139,7 +141,7 @@ void nrfFlushTX()
 {
   // Flush TX
   digitalWrite(CSN_pin, LOW);
-  data_in[0] = SPI.transfer(B11100001);
+  byte statusRegister = SPI.transfer(B11100001);
   digitalWrite(CSN_pin, HIGH);
 }
 
@@ -149,7 +151,7 @@ void nrfGetData()
   int i;
   digitalWrite(CSN_pin, LOW);
   //read the payload
-  data_in[0] = SPI.transfer(B01100001);
+  byte statusRegister = SPI.transfer(B01100001);
   data_in[1] = SPI.transfer(B00000000);
   data_in[2] = SPI.transfer(B00000000);
   data_in[3] = SPI.transfer(B00000000);
@@ -171,7 +173,14 @@ void nrfGetData()
     delay(10);//very important delay - this lets the transmitter finish
     
     //up what is was doing before sending data back
-    nrfTransmit(3,data_in[2],data_in[3]);//send the information back for verification
+    //send the information back for verification
+    functionData newInstruction = {
+      .function = 3,
+      .data1 = data_in[2],
+      .data2 = data_in[3]
+    };
+    
+    nrfTransmit(newInstruction);
   }
   
   //data starting with '2' sets writes to the pin
@@ -189,19 +198,19 @@ void nrfGetData()
     delay(10);
     
     //send back for verification
-    nrfTransmit(3,data_in[2],data_in[3]);
+    functionData newInstruction = {
+      .function = 3,
+      .data1 = data_in[2],
+      .data2 = data_in[3]
+    };
+    
+    nrfTransmit(newInstruction);
   }
   
   //echo back used to verify the right data was sent
   else if(data_in[1]==3) {
     data2 = data_in[2];
     data3 = data_in[3];
-  }
-  
-  //4 is used to do digital reads
-  else if(data_in[1]==4) {
-    delay(10);
-    nrfTransmit(3,data_in[2],digitalRead(data_in[2]));//everything comes back with the echo
   }
   
   //not yet implemented, will be for analog reads probably
@@ -211,7 +220,14 @@ void nrfGetData()
   else if(data_in[1]==6) {
     delay(10);
     //send ping back
-    nrfTransmit(3,data_in[2],data_in[3]);
+
+    functionData newInstruction = {
+      .function = 3,
+      .data1 = data_in[2],
+      .data2 = data_in[3]
+    };
+    
+    nrfTransmit(newInstruction);
   }
   
   //not yet implemented, will be for dedicated function like temp reads
@@ -242,7 +258,7 @@ void nrfSetRXPayload(byte pipe, byte bytes)
   digitalWrite(CSN_pin, LOW);
 
   // write register 11 RX_PW_P0
-  data_in[0] = SPI.transfer(address);
+  byte statusRegister = SPI.transfer(address);
 
   // number of bytes in payload
   data_in[1] = SPI.transfer(bytes);
@@ -304,7 +320,13 @@ void nrfPing()
   Serial.print(ping);
 
   // send the ping out starting with 6 (basically a function id)
-  nrfTransmit(6, ping, ping);
+  functionData newInstruction = {
+    .function = 6,
+    .data1 = ping,
+    .data2 = ping
+  };
+  
+  nrfTransmit(newInstruction);
 
   //give it a little
   delay(15);
@@ -320,13 +342,8 @@ void nrfPing()
   data2=0;
 }
 
-//     MASSIVE ROUTINE HERE - PUT ALL ROUTINES ABOVE THIS
-
 byte nrfGetAddress(byte address)
 {
-  //send the address and either a 1 or 0 if you want to do a serial print of the address
-  //after a call to this routine, data_in[1] will equal the address you called
-
   return nrfWriteByte(address, B00000000);
 }
 

@@ -8,6 +8,8 @@
 //7 MISO   12 in
 //8 IRQ    2  in
 
+#include "FunctionData.h"
+
 void setup()
 {
   //set up the SPI and define pins
