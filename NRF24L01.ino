@@ -16,19 +16,21 @@
 //8 IRQ    2  in
 
 //The global variables used by everyone
-functionData lastReadInstruction, expectedInstruction;
-bool hasData, waitingReturn;
-int successCount = 0, failCount = 0;
+functionData lastReadInstruction;
+bool hasData;
 
 bool nrfHasData()
 {
   return hasData;
 }
 
+void nrfClearHasData()
+{
+  hasData = false;
+}
+
 functionData nrfGetLastReadInstruction()
 {
-  // we've read the data so reset the hasData flag
-  hasData = false;
   return lastReadInstruction;
 }
 
@@ -224,84 +226,6 @@ void nrfClearInterrupts()
 
   // Reset RX interrupt
   nrfSetAddressBit(7, 6);
-}
-
-// This function is called in the main loop
-void nrfPing()
-{
-  if(!hasData && !waitingReturn) {
-    //get a random byte
-    int ping = random(256);
-    Serial.print("Pinging with     ");
-    Serial.print(ping);
-  
-    // send the ping out starting with 6 (basically a function id)
-    functionData instruction = {
-      .function = PING,
-      .data1 = ping,
-      .data2 = ping
-    };
-
-    expectedInstruction = {
-      .function = PING_RETURN,
-      .data1 = ping,
-      .data2 = ping
-    };
-    
-    nrfTransmit(instruction);
-
-    waitingReturn = true;
-  }
-  // otherwise we have data and need to verify that it is the correct data
-  else if(hasData) {  
-    //echo back used to verify the right data was sent
-    if(lastReadInstruction.function == PING_RETURN) {
-      expectedInstruction.data1 = lastReadInstruction.data1;
-      expectedInstruction.data2 = lastReadInstruction.data2;
-    }
-    
-    //ping transmit
-    else if(lastReadInstruction.function == PING) {
-      delay(10);
-      //send ping back
-  
-      functionData newInstruction = {
-        .function = PING_RETURN,
-        .data1 = lastReadInstruction.data1,
-        .data2 = lastReadInstruction.data2
-      };
-      
-      nrfTransmit(newInstruction);
-    }
-  
-    //this is printed if a mode was not defined
-    else {
-      Serial.println("No Mode Byte Identified!");
-  
-      Serial.print("Function " + lastReadInstruction.function);
-      Serial.print("Data1    " + lastReadInstruction.data1);
-      Serial.print("Data2    " + lastReadInstruction.data2);
-      
-      Serial.println("  ");
-    }
-  
-    //see if data2 came back with the ping
-    if(lastReadInstruction.data1 == expectedInstruction.data1) {
-      Serial.println(" PING Successfull!! ");
-      successCount++;
-    } else {
-      Serial.println(" PING FAIL!! ");
-      failCount++;
-    }
-
-    Serial.print("Success: ");
-    Serial.print((uint8_t) successCount, DEC);
-    Serial.print(" Fail: ");
-    Serial.println((uint8_t) failCount, DEC);
-
-    hasData = false;
-    waitingReturn = false;
-  }
 }
 
 byte nrfGetAddress(byte address)
