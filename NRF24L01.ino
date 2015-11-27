@@ -76,7 +76,7 @@ void nrfInit()
   delay(100);
 
   // pipe 0-5, bytes 1-32
-  nrfSetRXPayload(0, 3);
+  nrfSetRXPayload(0, 2);
 
   // register#, bit#, and value 0 or 1, ::  0,0,1 RX Mode
   nrfSetAddressBit(0, 0);
@@ -113,7 +113,6 @@ functionData nrfTransmit(functionData instruction)
   // load three bytes of data
   returnInstruction.function = SPI.transfer(instruction.function);
   returnInstruction.data1    = SPI.transfer(instruction.data1);
-  returnInstruction.data2    = SPI.transfer(instruction.data2);
   digitalWrite(CSN_pin, HIGH);
 
   //pull CE pin LOW
@@ -164,7 +163,6 @@ void nrfGetData()
   byte statusRegister = SPI.transfer(B01100001);
   lastReadInstruction.function = SPI.transfer(B00000000);
   lastReadInstruction.data1    = SPI.transfer(B00000000);
-  lastReadInstruction.data2    = SPI.transfer(B00000000);
   digitalWrite(CSN_pin, HIGH);
 
   // Let the rest of the program know that we have new data
