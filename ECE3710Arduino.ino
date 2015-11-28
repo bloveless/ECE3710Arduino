@@ -119,6 +119,9 @@ void loop()
 
     functionData lastReadInstruction = nrfGetLastReadInstruction();
 
+    Serial.print("Received: ");
+    Serial.println((uint8_t) lastReadInstruction.data1);
+
     // if the last read instruction was a ping
     // then we should return it
     if(lastReadInstruction.function == PING) {
