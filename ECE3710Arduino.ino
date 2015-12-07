@@ -29,11 +29,14 @@
 Adafruit_NeoPixel pixels = Adafruit_NeoPixel(NUMPIXELS, PIN, NEO_GRB + NEO_KHZ800);
 
 functionData expectedInstruction;
-bool isMaster = false, waitingSuccessfulReturn = false;
+bool isMaster = true, waitingSuccessfulReturn = false;
 // Allow the transmit to fail 10 times before skipping that packet
 int allowedFails = 10;
 // Track the current number of fails
 int currentFails = 0;
+
+// Keep track of the last time the pump was turned on
+unsigned long pumpOnTime = 0;
 
 void setup()
 {
@@ -43,9 +46,24 @@ void setup()
   if(!isMaster) {
     pinMode(A0, OUTPUT);
     pinMode(A1, OUTPUT);
+    pinMode(A2, OUTPUT);
     pinMode(A5, OUTPUT);
 
+    // init everything to off
+    digitalWrite(A0, LOW);
+    digitalWrite(A2, LOW);
+    digitalWrite(A5, LOW);
+
     pixels.begin();
+  } else {
+    pinMode(A0, INPUT);
+    pinMode(A1, INPUT);
+    pinMode(A2, INPUT);
+    pinMode(A3, INPUT);
+    pinMode(A4, INPUT);
+    pinMode(A5, INPUT);
+    pinMode(8, INPUT);
+    pinMode(9, INPUT);
   }
 }
 
@@ -81,36 +99,62 @@ void loop()
       
     } else if(!waitingSuccessfulReturn) {
 
-      if(Serial.available() > 0) {
-        char inChar = Serial.read();
-        if(isDigit(inChar)) {
-          inString += (char) inChar;
-        }
+      delay(250);
+
+      int readValue = 0;
+      if(false) {
+        if(Serial.available() > 0) {
+          char inChar = Serial.read();
+          if(isDigit(inChar)) {
+            inString += (char) inChar;
+          }
   
-        if((inChar == '\n') && (inString != "")) {
-          //get a random byte
-          int ping = inString.toInt();
-          Serial.print("Pinging with     ");
-          Serial.println(ping);
+          if((inChar == '\n') && (inString != "")) {
+            //get a random byte
+            readValue = inString.toInt();
+            Serial.print("Pinging with     ");
+            Serial.println(readValue);
+          }
+        }
+      } else {
+        delay(250);
+  
+        readValue |= (digitalRead(A0) << 0);
+        readValue |= (digitalRead(A1) << 1);
+        readValue |= (digitalRead(A2) << 2);
+        readValue |= (digitalRead(A3) << 3);
+        readValue |= (digitalRead(A4) << 4);
+        readValue |= (digitalRead(A5) << 5);
+        readValue |= (digitalRead(8) << 6);
+        readValue |= (digitalRead(9) << 7);
+    
+        Serial.print("Read value:");
+        Serial.println(readValue);
+      }
+
+
+      if(readValue > 0) {
         
-          // send the ping out starting with 6 (basically a function id)
-          functionData instruction = {
-            .function = PING,
-            .data1 = ping
-          };
+        Serial.print("Sending with     ");
+        Serial.println(readValue);
       
-          expectedInstruction = {
-            .function = PING_RETURN,
-            .data1 = ping
-          };
-          
-          nrfTransmit(instruction);
-      
-          waitingSuccessfulReturn = true;  
-  
-          // Get ready for new input
-          inString = "";
-        }
+        // send the ping out starting with 6 (basically a function id)
+        functionData instruction = {
+          .function = PING,
+          .data1 = readValue
+        };
+    
+        expectedInstruction = {
+          .function = PING_RETURN,
+          .data1 = readValue
+        };
+        
+        nrfTransmit(instruction);
+    
+        waitingSuccessfulReturn = true;  
+
+        // Get ready for new input
+        inString = "";
       }
     }
   }
@@ -185,6 +229,12 @@ void loop()
           pixels.show(); // This sends the updated pixel color to the hardware.
         }
       }
+      // Turn pump on for 5 seconds
+      else if(lastReadInstruction.data1 == 9) {
+        digitalWrite(A2, HIGH);
+        // record the time so that the pump will turn off after 5 seconds
+        pumpOnTime = millis();
+      }
 
       // Send a validation ping back
       nrfTransmit(newInstruction);
@@ -192,33 +242,13 @@ void loop()
 
     nrfClearHasData();
   }
-
-  if(!isMaster) {
-
-/*
-    delay(1000);
-    
-    digitalWrite(A0, HIGH);
-    digitalWrite(A5, HIGH);
-
-    delay(1000);
-
-    digitalWrite(A0, LOW);
-    digitalWrite(A5, LOW);
-
-    for(int i=0;i<NUMPIXELS;i++){
-    
-      // pixels.Color takes RGB values, from 0,0,0 up to 255,255,255
-      pixels.setPixelColor(i, pixels.Color(255, 255, 255)); // Moderately bright green color.
-      
-      pixels.show(); // This sends the updated pixel color to the hardware.
-      
-      delay(500); // Delay for a period of time (in milliseconds).
-      
+  // is slave and doesn't have nrf data (should happen more often than not)
+  else {
+    // if the pump has been on longer than 5 seconds
+    // or this is the first time we are in this function
+    if((millis() - pumpOnTime) > 5000) {
+      digitalWrite(A2, LOW);
     }
-
-        */
-    
   }
 }
 
